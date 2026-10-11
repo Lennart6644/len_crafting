@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OwnCrafting</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <section class="window" v-show="visible">
+            <div class="glow glow-a"></div>
+            <div class="glow glow-b"></div>
+
+            <header class="topbar">
+                <div class="brand">
+                    <div class="brand-orb"><i class="fas fa-hammer"></i></div>
+                    <div class="brand-text">
+                        <span class="brand-title">{{ bench.label }}</span>
+                        <span class="brand-sub">{{ t('ui_home_subtitle') }}</span>
+                    </div>
+                </div>
+
+                <nav class="tabs">
+                    <button
+                        v-for="tab in tabs"
+                        :key="tab.id"
+                        :class="['tab', { active: view === tab.id }]"
+                        @click="view = tab.id">
+                        <i :class="tab.icon"></i>
+                        <span>{{ tab.label }}</span>
+                        <em v-if="tab.badge" class="badge">{{ tab.badge }}</em>
+                    </button>
+                </nav>
+
+                <button class="icon-btn" @click="close" :title="t('ui_close')">
+                    <i class="fas fa-xmark"></i>
+                </button>
+            </header>
+
+            <main class="view">
+                <section v-if="view === 'home'" class="home fade-in">
+                    <div class="hero">
+                        <div class="ring-wrap">
+                            <div class="ring-spin"></div>
+                            <div class="ring-core"><i class="fas fa-hammer"></i></div>
+                        </div>
+                        <h1>{{ bench.label }}</h1>
+                        <p>{{ bench.description }}</p>
+                        <div class="hero-actions">
+                            <button class="btn primary" @click="view = 'craft'">
+                                <i class="fas fa-play"></i> {{ t('ui_start_crafting') }}
+                            </button>
+                            <button class="btn" @click="view = 'queue'">
+                                <i class="fas fa-list-check"></i> {{ t('ui_open_queue') }}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="stats">
+                        <div class="stat">
+                            <span class="stat-icon"><i class="fas fa-book-open"></i></span>
+                            <div>
+                                <span class="stat-value">{{ availableRecipes.length }}</span>
+                                <span class="stat-label">{{ t('ui_stat_recipes') }}</span>
+                            </div>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-icon"><i class="fas fa-layer-group"></i></span>
+                            <div>
+                                <span class="stat-value">{{ queue.length }}</span>
+                                <span class="stat-label">{{ t('ui_stat_queue') }}</span>
+                            </div>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-icon"><i class="fas fa-gauge-high"></i></span>
+                            <div>
+                                <span class="stat-value">{{ queue.length ? progressPct : '—' }}</span>
+                                <span class="stat-label">{{ t('ui_stat_progress') }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <p class="hint"><i class="fas fa-circle-info"></i> {{ t('ui_home_hint') }}</p>
+                </section>
+
+                <section v-else-if="view === 'craft'" class="craft fade-in">
+                    <div class="list-col">
+                        <div class="search">
+                            <i class="fas fa-magnifying-glass"></i>
+                            <input type="text" v-model="search" :placeholder="t('ui_search')">
+                        </div>
+                        <div class="grid">
+                            <button
+                                v-for="r in filteredRecipes"
+                                :key="r.name"
+                                :class="['card', { active: selected && selected.name === r.name, locked: r.locked }]"
+                                @click="selectRecipe(r)">
+                                <span v-if="r.locked" class="lock"><i class="fas fa-lock"></i></span>
+                                <span class="card-icon"><img :src="iconUrl(r.name)" @error="onIconError"></span>
+                                <span class="card-name">{{ r.label }}</span>
+                                <span class="card-time"><i class="far fa-clock"></i> {{ formatTime(r.duration) }}</span>
+                            </button>
+                            <div v-if="!filteredRecipes.length" class="empty-small">{{ t('ui_no_results') }}</div>
+                        </div>
+                    </div>
+
+                    <aside class="detail">
+                        <div v-if="!selected" class="empty">
+                            <i class="fas fa-hand-pointer"></i>
+                            <p>{{ t('ui_select_recipe') }}</p>
+                        </div>
+
+                        <div v-else :class="['detail-inner', { pop: crafting }]">
+                            <div class="preview">
+                                <div class="preview-glow"></div>
+                                <img class="preview-icon" :src="iconUrl(selected.name)" @error="onIconError">
+                                <h2>{{ selected.label }}</h2>
+                                <div class="meta">
+                                    <span><i class="far fa-clock"></i> {{ formatTime(selected.duration * amount) }}</span>
+                                    <span v-if="amount > 1" class="muted">{{ t('ui_total_duration') }}</span>
+                                </div>
+                            </div>
+
+                            <div class="section-title">{{ t('ui_required') }}</div>
+                            <div class="mats">
+                                <div
+                                    v-for="input in selected.inputs"
+                                    :key="input.item"
+                                    :class="['mat', { missing: countOf(input.item) < input.amount * amount }]">
+                                    <img :src="iconUrl(input.item)" @error="onIconError">
+                                    <div class="mat-body">
+                                        <div class="mat-row">
+                                            <span class="mat-name">{{ itemLabel(input.item) }}</span>
+                                            <span class="mat-count">{{ countOf(input.item) }} / {{ input.amount * amount }}</span>
+                                        </div>
+                                        <div class="bar">
+                                            <div class="bar-fill" :style="{ width: matPct(input) }"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="controls">
+                                <div class="control-head">
+                                    <span class="label">{{ t('ui_amount') }}</span>
+                                    <span class="muted small">{{ t('ui_max_possible') }}: {{ maxAmount }}</span>
+                                </div>
+                                <div class="stepper">
+                                    <button @click="changeAmount(-1)"><i class="fas fa-minus"></i></button>
+                                    <span class="stepper-value">{{ amount }}</span>
+                                    <button @click="changeAmount(1)"><i class="fas fa-plus"></i></button>
+                                    <button class="max" @click="setMax">{{ t('ui_max') }}</button>
+                                </div>
+
+                                <button class="btn primary craft-btn" :disabled="!canCraft" @click="startCraft">
+                                    <span class="shine"></span>
+                                    <span class="sparks" :key="sparkKey" v-if="sparkKey > 0">
+                                        <span v-for="n in 12" :key="n" :style="sparkStyle(n)"></span>
+                                    </span>
+                                    <i class="fas fa-hammer"></i>
+                                    <span>{{ craftLabel }}</span>
+                                </button>
+                            </div>
+                        </div>
+                    </aside>
+                </section>
+
+                <section v-else-if="view === 'queue'" class="queue fade-in">
+                    <div v-if="!queue.length" class="empty">
+                        <i class="fas fa-inbox"></i>
+                        <p>{{ t('ui_queue_empty') }}</p>
+                    </div>
+
+                    <template v-else>
+                        <div class="active-card">
+                            <div class="ring big">
+                                <svg viewBox="0 0 120 120">
+                                    <circle class="ring-bg" cx="60" cy="60" r="52"></circle>
+                                    <circle class="ring-fg" cx="60" cy="60" r="52"
+                                        :style="{ strokeDashoffset: ringOffset(hud.progress) }"></circle>
+                                </svg>
+                                <div class="ring-center"><img :src="iconUrl(queue[0].name)" @error="onIconError"></div>
+                            </div>
+                            <div class="active-info">
+                                <span class="kicker">{{ t('ui_queue_active') }}</span>
+                                <h2>{{ queue[0].label }} <b>×{{ queue[0].count }}</b></h2>
+                                <span class="muted">{{ t('ui_remaining') }}: {{ formatTime(remainingMs) }}</span>
+                                <span class="muted small">{{ freeSlotsText }}</span>
+                                <div class="slots">
+                                    <span
+                                        v-for="n in config.maxQueue"
+                                        :key="n"
+                                        :class="['slot', { used: n <= queue.length }]"></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="queue.length > 1" class="waiting">
+                            <div class="section-title">{{ t('ui_queue_waiting') }}</div>
+                            <div v-for="job in queue.slice(1)" :key="job.id" class="wait-item">
+                                <img :src="iconUrl(job.name)" @error="onIconError">
+                                <span class="wait-name">{{ job.label }} <b>×{{ job.count }}</b></span>
+                                <span class="muted small">{{ formatTime(job.duration) }}</span>
+                            </div>
+                        </div>
+
+                        <div class="queue-actions">
+                            <button class="btn danger" @click="cancelQueue">
+                                <i class="fas fa-ban"></i> {{ t('ui_queue_cancel') }}
+                            </button>
+                        </div>
+                    </template>
+                </section>
+            </main>
+        </section>
+
+        <div v-show="hud.state !== 'hidden'" :class="['hud', hud.state]">
+            <div class="hud-ring">
+                <svg viewBox="0 0 40 40">
+                    <circle class="rbg" cx="20" cy="20" r="17"></circle>
+                    <circle class="rfg" cx="20" cy="20" r="17" :style="{ strokeDashoffset: hudRingOffset }"></circle>
+                </svg>
+                <i v-if="hud.state === 'cancelled'" class="fas fa-triangle-exclamation"></i>
+                <img v-else :src="iconUrl(hud.icon)" @error="onIconError">
+            </div>
+            <div class="hud-body">
+                <span class="hud-title">{{ hud.state === 'cancelled' ? t('ui_hud_cancelled') : hud.label }}</span>
+                <span class="hud-sub">
+                    <template v-if="hud.state === 'cancelled'">{{ t('ui_hud_far') }}</template>
+                    <template v-else>
+                        {{ t('ui_hud_current') }}<template v-if="hud.more > 0"> · {{ moreText }}</template>
+                    </template>
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.2.47/vue.global.prod.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
